@@ -1,0 +1,87 @@
+set -e             # Do not continue if exception
+
+# Input variables
+if [ ! $2 ];then
+  n_top_jobs=10     # Number of jobs in each status
+else
+  n_top_jobs=$2
+fi
+
+function getusername {
+  : '
+  Function to extract full name of user
+  '
+
+  out=$(getent passwd $1 | cut -d ':' -f5)
+  out=${out// /_}
+  echo "$out"
+}
+
+function getusergroup {
+  : '
+  Function to extract group name of user
+  '
+
+  id -gn $1
+}
+
+function printinfo {
+  : '
+  Function to print information for job frequency and user name and group
+  '
+
+  if [ ! -e $1 ] && [ ! -e $2 ]; then
+    echo "$1 $2 $(getusername $2) $(getusergroup $2)" >> .tmpjobstatusout
+  else
+    echo "No job in ${chkname} status on this filesystem."
+  fi
+}
+
+function checkjobstat {
+  : '
+  Function to extract jobs with specified status and filesystem
+  '
+
+  rm -f .tmpjobstatusout
+  export chkname=$1
+
+  echo ""
+  echo "=================================================="
+  echo "--- Jobs <$1> on Filesystem: ${2}"
+  echo "=================================================="
+  cat .tmpjobstatus | grep -B2 -A23 "JobState=${1}" | \
+                      grep -w -B21 "WorkDir=${2%/}/*" | \
+                      grep 'UserId=' | cut -d = -f2 | \
+                      cut -d '(' -f1 | sort | uniq -c | \
+                      sort -gr | xargs -L 1 bash -c 'printinfo "$@"' _
+
+  if [ -f .tmpjobstatusout ]; then
+  cat .tmpjobstatusout | head -$n_top_jobs | column -t -s' '
+  rm -f .tmpjobstatusout
+  fi
+
+  unset chkname
+}
+
+# Export functions
+export -f getusername
+export -f getusergroup
+export -f printinfo
+
+# Get SLURM current job information
+scontrol show job > .tmpjobstatus
+
+# Print header
+echo "Job_Freq    UserID    User_Full_Name    User_Group"
+
+declare -a sarr=("RUNNING" "COMPLETING" "PENDING" "COMPLETED" "TIMEOUT" \
+                 "FAILED" "CANCELLED" "OUT_OF_MEMORY")
+
+for s in "${sarr[@]}"
+do
+  checkjobstat "$s" $1
+done
+
+unset getusername getusergroup printinfo
+
+rm -f .tmpjobstatus
