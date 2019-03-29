@@ -1,3 +1,5 @@
+#!/bin/bash
+
 set -e             # Do not continue if exception
 
 # Input variables
